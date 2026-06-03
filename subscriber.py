@@ -10,8 +10,13 @@ class LecturaSensor(BaseModel):
     
 BROKER = "broker.hivemq.com"
 PUERTO = 1883
-TOPICO = "unmsm/fisi/cc/sensor/temperatura"
-# Callback cuando el cliente recibe una confirmación de conexión (CONNACK) del broker
+TOPICO = "unmsm/callao/camara/+/telemetria"
+
+#Funcion para registrar errores
+def registrar_error(mensaje_error):
+    with open("log_errores.txt", "a", encoding="utf-8") as file:
+        file.write(f"{mensaje_error}\n")
+
 def on_connect(client, userdata, flags, rc, properties):
     if rc == 0:
         print("Conectado exitosamente al Broker MQTT")
@@ -21,20 +26,31 @@ def on_connect(client, userdata, flags, rc, properties):
     else:
         print(f"Error de conexión. Código de retorno: {rc}")
         # Callback cuando llega un mensaje publicado al tópico suscrito
+        
 def on_message(client, userdata, msg):
     raw_payload = msg.payload.decode()
     print(f"\n[SUBSCRIBER] Mensaje recibido en {msg.topic}")
+    
     try:
-        # Intentar transformar de JSON plano a Objeto Validado
         datos_json = json.loads(raw_payload)
         lectura = LecturaSensor(**datos_json)
-        # Procesar lectura validada de forma segura
-        print(f"-> Datos Validados Correctamente. ID: {lectura.sensor_id}")
-        print(f"-> Temperatura Registrada: {lectura.valor} {lectura.unidad}")
+        
+        # Validación de temperatura de la cámara
+        if lectura.valor > 5.0:
+            print(f"[PELIGRO] ¡Pérdida de cadena de frío en Cámara {lectura.sensor_id}!")
+        else:
+            print(f"-> Cámara {lectura.sensor_id} estable a {lectura.valor} {lectura.unidad}")
+            
     except json.JSONDecodeError:
-        print("[ALERTA] Los datos recibidos no corresponden a un formato JSON válido.")
+        error_msg = f"[ALERTA] JSON inválido en {msg.topic}: {raw_payload}"
+        print(error_msg)
+        registrar_error(error_msg)
+        
     except ValidationError as e:
-        print(f"[ALERTA DE SEGURIDAD] Violación de integridad de datos:\n{e}")
+        error_msg = f"[ALERTA DE SEGURIDAD] Datos corruptos en {msg.topic}. Detalles:\n{e}"
+        print(error_msg)
+        registrar_error(error_msg) # Se guarda en log_errores.txt
+        
 def main():
     cliente = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
     # Asignar los callbacks de eventos de red
